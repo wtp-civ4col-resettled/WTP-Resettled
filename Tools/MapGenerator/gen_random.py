@@ -3567,6 +3567,54 @@ for _b in _re.findall(r'<FeatureInfo>(.*?)</FeatureInfo>', _fx, _re.S):
         RIVER_RULE.add(_re.search(r'<Type>FEATURE_(\w+)</Type>', _b).group(1))
 east_peaks_worn += east_foreland()            # the late coves may have opened new coast in front of a peak
 softened += transitions()                      # the late shrubland -> desert change must not jump either
+# Coasts stay settleable (user 2026-11-27: next to coastal mountains whole coast strips were hills): around every coastal
+# land plot (its own plot and the 8 around it) at most COAST_ROUGH_MAX hills and peaks, and at most half of the land
+# there. Surplus hills go flat, the most crowded first; peaks, set pieces and clay hills stay.
+COAST_ROUGH_MAX = 3
+coast_rng = random.Random(SEED * 7 + 113)
+coast_keep = SET_PIECES | set(CLAY_HILLS)
+
+
+def coast_land(j):
+    return land[j] and not lake[j] and not ocean[j]
+
+
+def coast_rough(j):
+    return coast_land(j) and plot_type[j] in (0, 1)
+
+
+def coast_rough_nbrs(j):
+    return sum(1 for nx, ny in nbrs(j % W, j // W) if coast_rough(I(nx, ny)))
+
+
+coast_sites = [i for i in range(W * H) if coast_land(i)
+               and any(ocean[I(nx, ny)] and not lake[I(nx, ny)] and not large[I(nx, ny)] for nx, ny in nbrs(i % W, i // W))]
+coast_rng.shuffle(coast_sites)
+
+
+def coast_crowded(i):
+    cells = [i] + [I(nx, ny) for nx, ny in nbrs(i % W, i // W)]
+    nland = sum(1 for j in cells if coast_land(j))
+    return sum(1 for j in cells if coast_rough(j)) - min(COAST_ROUGH_MAX, max(1, nland // 2)), cells
+
+
+coast_locked = sum(1 for i in coast_sites if coast_crowded(i)[0] > 0)
+coast_flattened = 0
+for i in coast_sites:
+    surplus, cells = coast_crowded(i)
+    while surplus > 0:
+        hills = [j for j in cells if coast_land(j) and plot_type[j] == 1 and j not in coast_keep]
+        if not hills:
+            break
+        hills.sort(key=lambda j: (-coast_rough_nbrs(j), coast_rng.random()))
+        j = hills[0]
+        plot_type[j] = 2
+        if feature[j] == 'MEADOW':           # meadows grow on hills only
+            feature[j] = None
+        coast_flattened += 1
+        surplus -= 1
+print('coastal lowlands: crowded coast plots', coast_locked, 'left', sum(1 for i in coast_sites if coast_crowded(i)[0] > 0),
+      'hills flattened', coast_flattened, 'of', sum(1 for i in range(W * H) if plot_type[i] == 1) + coast_flattened)
 fixed_features = 0
 for x, y in ALL:
     i = I(x, y)
